@@ -3,6 +3,8 @@
  * for Processing 1.5.1(not for Processing 2.x)
  * @author Sad Juno
  * @version 201502
+ * @link https://github.com/DBC-Works
+ * @license http://opensource.org/licenses/MIT
  */
 
 //
