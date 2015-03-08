@@ -2,7 +2,7 @@
  * StereoSoundVisualizer
  * for Processing 1.5.1(not for Processing 2.x)
  * @author Sad Juno
- * @version 201502
+ * @version 201503
  * @link https://github.com/DBC-Works
  * @license http://opensource.org/licenses/MIT
  */
@@ -27,7 +27,7 @@ import processing.video.*;
 //
 
 // screenScale: 1.0 - HD(1280x720) / 1.5 - Full HD(1920x1080)
-final float screenScale = 2 / 4.0;
+final float screenScale = 4 / 4.0;
 
 // record: Record movie if true 
 final boolean record = false;
@@ -42,7 +42,7 @@ SoundInfo[] sounds = {
 };
 
 // bgBrightness: Background brightness(0 - black / 360 - white)
-float bgBrightness = 360;
+float bgBrightness = 0;
 
 //
 // Classes
@@ -62,7 +62,7 @@ final class SoundInfo
   }
 }
 
-final class ChannelPointInfo
+class ChannelPointInfo
 {
   float x;
   float y;
@@ -85,10 +85,10 @@ final class ChannelPointInfo
   }
 }
 
-final class SoundPoints
+final class SoundPoints<T>
 {
-  final List<ChannelPointInfo> rightChannelPoints = new ArrayList<ChannelPointInfo>();
-  final List<ChannelPointInfo> leftChannelPoints = new ArrayList<ChannelPointInfo>();
+  final List<T> rightChannelPoints = new ArrayList<T>();
+  final List<T> leftChannelPoints = new ArrayList<T>();
   
   boolean isEmpty()
   {
@@ -96,9 +96,9 @@ final class SoundPoints
   }
 }
 
-abstract class VisualProcessor
+abstract class VisualProcessor<T>
 {
-  protected final SoundPoints soundPoints = new SoundPoints();
+  protected final SoundPoints<T> soundPoints = new SoundPoints<T>();
   protected final float screenScale;
   protected final int hzIndexSize;
   
@@ -130,11 +130,24 @@ abstract class VisualProcessor
     return maxIndex;
   }
 
+  protected final void circle(
+    float r)
+  {
+      beginShape();
+      curveVertex(r, 0, 0);
+      for (int a = 0; a <= 360; a += 30) {
+        final float rad = radians(a);
+        curveVertex(r * cos(rad), r * sin(rad), 0);
+      }
+      curveVertex(r, 0, 0);
+      endShape();
+  }  
+
   abstract void addPoint(float angle, FFT rightFft, FFT leftFft);
   abstract void visualize(float angle);
 }
 
-final class ChannelCurveVisualProcessor extends VisualProcessor
+final class ChannelCurveVisualProcessor extends VisualProcessor<ChannelPointInfo>
 {
   private final float distFromOrigin;
   private final float maxSampleRate;
@@ -174,19 +187,6 @@ final class ChannelCurveVisualProcessor extends VisualProcessor
     }
     return 360 - val;
   }
-
-  private void circle(
-    float r)
-  {
-      beginShape();
-      curveVertex(r, 0, 0);
-      for (int a = 0; a <= 360; a += 30) {
-        final float rad = radians(a);
-        curveVertex(r * cos(rad), r * sin(rad), 0);
-      }
-      curveVertex(r, 0, 0);
-      endShape();
-  }  
   
   private void processChannel(
     List<ChannelPointInfo> channelPoints,
@@ -249,7 +249,7 @@ final class ChannelCurveVisualProcessor extends VisualProcessor
   }
 }
 
-final class ChannelSphereVisualProcessor extends VisualProcessor
+final class ChannelSphereVisualProcessor extends VisualProcessor<ChannelPointInfo>
 {
   private final float distFromOrigin;
   private final float maxSampleRate;
@@ -320,6 +320,231 @@ final class ChannelSphereVisualProcessor extends VisualProcessor
   }
 }
 
+final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRingSwayingVisualProcessor.Boids>
+{
+  // http://coderecipe.jp/recipe/gRrj53OPQF/
+  
+  final class Boids extends ChannelPointInfo
+  {
+    final PVector velocity;
+    int age;
+    
+    Boids(
+      float posX,
+      float posY,
+      float posZ,
+      float avgAmp,
+      int index)
+    {
+      super(posX, posY, posZ, avgAmp, index);
+      
+      velocity = new PVector(0, 0, 0);
+      age = 0;
+    }
+    
+    float getReferenceDistanceFrom(Boids b)
+    {
+      float distx = x - b.x;
+      float disty = y - b.y;
+      float distz = z - b.z;
+      return distx * distx + disty * disty + distz * distz;
+    }
+
+    PVector calcCenterOfHerd(
+      List<Boids> channelBoids)
+    {
+      PVector center = new PVector(0, 0, 0);
+
+      for (Boids boids : channelBoids) {
+        if (this != boids) {
+          center.x += boids.x;
+          center.y += boids.y;
+          center.z += boids.z;
+        }
+      }
+      center.x /= channelBoids.size() - 1;
+      center.y /= channelBoids.size() - 1;
+      center.z /= channelBoids.size() - 1;
+      
+      return center;
+    }
+    
+    void addVelocity(
+    PVector target)
+    {
+      // rule 1
+      final float t = 0.95;
+      velocity.x += (target.x - x) * (1 - t);
+      velocity.y += (target.y - y) * (1 - t);
+      velocity.z += (target.z - z) * (1 - t);
+    }
+    
+    void tryKeepDistance(
+      List<Boids> channelBoids)
+    {
+      // rule 2
+      for (Boids boids : channelBoids) {
+        if (this != boids) {
+          if (getReferenceDistanceFrom(boids) < random(50000) * screenScale) {
+            velocity.x -= boids.x - x;
+            velocity.y -= boids.y - y;
+            velocity.z -= boids.z - z;
+          }
+        }        
+      }
+    }
+    
+    void trySync(
+      List<Boids> channelBoids)
+    {
+      // rule 3
+      PVector vel = new PVector(0, 0, 0);
+      for (Boids boids : channelBoids) {
+        if (this != boids) {
+          vel.x += boids.velocity.x;
+          vel.y += boids.velocity.y;
+          vel.z += boids.velocity.z;
+        }        
+      }
+      vel.x /= channelBoids.size() - 1;
+      vel.y /= channelBoids.size() - 1;
+      vel.z /= channelBoids.size() - 1;
+      
+      final float d = 100 * screenScale;
+      velocity.x += (vel.x - velocity.x) / d;
+      velocity.y += (vel.y - velocity.y) / d;
+      velocity.z += (vel.z - velocity.z) / d;
+    }
+    
+    void adjustAndMove()
+    {
+      float mag = velocity.mag();
+      final float magLimit = 20 * screenScale;
+      if (magLimit <= mag) {
+        float r = magLimit / mag;
+        velocity.x *= r;
+        velocity.y *= r;
+        velocity.z *= r;
+      }
+      if ((x < -(width / 2) && velocity.x < 0) || (width / 2 <= x && 0 < velocity.x)) {
+        velocity.x *= -1;
+      }
+      if ((y < -(height / 2) && velocity.y < 0) || (height / 2 <= y && 0 < velocity.y)) {
+        velocity.y *= -1;
+      }
+      if ((z < -height && velocity.z < 0) || (0 <= z && 0 < velocity.z)) {
+        velocity.z *= -1;
+      }
+      
+      x += velocity.x;
+      y += velocity.y;
+      z += velocity.z;
+      
+      ++age;
+    }
+  }
+
+  private final int AGE_LIMIT = 20;  
+  private final float distFromOrigin;
+  private final float maxSampleRate;
+  private final float hueBasis = 300;
+
+  ChannelRingSwayingVisualProcessor(
+    float screenScale,
+    float dist,
+    float maxRate,
+    int indexSize,
+    float tempo)
+  {
+    super(screenScale, indexSize);
+    
+    distFromOrigin = dist;
+    maxSampleRate = maxRate;
+    
+    randomSeed((int)tempo);
+  }
+  
+  private Boids createPoint(
+    float angle,
+    FFT fft)
+  {
+    final float r = radians(angle);
+    return new Boids(distFromOrigin * cos(r), distFromOrigin * sin(r), -distFromOrigin / 4, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+  }
+  
+  private float getIndexMap(
+    int index)
+  {
+    float val = map(index, 0, hzIndexSize, 0, 360);
+    if (hueBasis < val) {
+      val -= hueBasis;
+    }
+    else {
+      val += (360 - hueBasis);
+    }
+    return 360 - val;
+  }
+  
+  private void processChannel(
+    List<Boids> channelPoints,
+    boolean asLeft)
+  {
+    noFill();
+    strokeWeight(2 * screenScale);
+    for (Boids boids : channelPoints) {
+      pushMatrix();
+      translate(boids.x, boids.y, boids.z);
+      stroke(getIndexMap(boids.maxLevelHzIndex), 64, 100, 100 * ((channelPoints.size() - boids.age) / (float)channelPoints.size()));
+      circle((boids.averageAmplitude * 20) * screenScale);
+      popMatrix();
+    }
+    Iterator it = channelPoints.iterator();
+    while (it.hasNext()) {
+      Boids boids = (Boids)it.next();
+      if (AGE_LIMIT < boids.age) {
+        it.remove();
+      }
+    }
+    
+    for (Boids boids : channelPoints) {
+      // rule1
+      PVector center = boids.calcCenterOfHerd(channelPoints);
+      boids.addVelocity(center); 
+      
+      // rule2
+      boids.tryKeepDistance(channelPoints);
+      
+      // rule3
+      boids.trySync(channelPoints);
+      
+      // adjustAndMove
+      boids.adjustAndMove();
+    }
+  }
+  
+  void addPoint(
+    float angle,
+    FFT rightFft,
+    FFT leftFft)
+  {
+    if (isEmpty()) {
+      for (int count = 0; count < AGE_LIMIT; ++count) {
+        soundPoints.rightChannelPoints.add(new Boids(random(width) - width / 2, random(height) - height / 2, -random(height / 4), 0, 0));
+        soundPoints.leftChannelPoints.add(new Boids(random(width) - width / 2, random(height) - height / 2, -random(height / 4), 0, 0));
+      }
+    }
+    soundPoints.rightChannelPoints.add(createPoint(angle, rightFft));
+    soundPoints.leftChannelPoints.add(createPoint((angle + 180) % 360, leftFft));
+  }
+  
+  void visualize(
+    float angle)
+  {
+    processChannel(soundPoints.rightChannelPoints, false);
+    processChannel(soundPoints.leftChannelPoints, true);
+  }
+}
+
 //
 // Fields
 //
@@ -337,8 +562,15 @@ MovieMaker movie;
 // Methods
 //
 
+float getTempo()
+{
+  return sounds[infoIndex].tempo;
+}
+
 void playNewSound()
 {
+  background(bgBrightness);
+  
   player = minim.loadFile(sounds[infoIndex].filePath, 1024);
   rightFft = new FFT(player.bufferSize(), player.sampleRate());
   leftFft = new FFT(player.bufferSize(), player.sampleRate());
@@ -346,6 +578,7 @@ void playNewSound()
   processors.clear();
   processors.add(new ChannelSphereVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelCurveVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
+  processors.add(new ChannelRingSwayingVisualProcessor(screenScale, height / 6, player.sampleRate() / 2, rightFft.specSize() / 10, getTempo()));
   
   player.play();
 }
@@ -414,7 +647,7 @@ void draw()
     movie.addFrame();
   }
   
-  angle += 360 * (((60.0 / sounds[infoIndex].tempo) * 4) / frameRate);
+  angle += 360 * (((60.0 / getTempo()) * 4) / frameRate);
   if (360 <= angle) {
     angle = 0;
   }
