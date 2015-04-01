@@ -1,0 +1,16 @@
+<playlist repeat="no">
+<!--
+	<scene tempo="122" file="Initial Revelry.mp3"
+		backgroundColor="#000000"
+		visualizer="sphere"
+	/>
+	<scene tempo="104" file="Calling.mp3"
+		backgroundColor="#FFFFFF"
+		visualizer="ringSwaying"
+	/>
+ -->
+	<scene tempo="112" file="D:\Workplace\Music\Vigilance Activities\Vigilance Activities.wav"
+		backgroundColor="#000000"
+		visualizer="ringSwaying"
+	/>
+</playlist>
