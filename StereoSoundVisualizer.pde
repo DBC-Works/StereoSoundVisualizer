@@ -2,7 +2,7 @@
  * StereoSoundVisualizer
  * for Processing 1.5.1(not for Processing 2.x)
  * @author Sad Juno
- * @version 201503
+ * @version 201504
  * @link https://github.com/DBC-Works
  * @license http://opensource.org/licenses/MIT
  */
@@ -32,33 +32,30 @@ final float screenScale = 4 / 4.0;
 // record: Record movie if true 
 final boolean record = false;
 
-// repeatPlayback: Repeat playback if true 
-final boolean repeatPlayback = false;
-
-// sounds: Play back sound info(tempo, file(wav, mp3, ...)
-SoundInfo[] sounds = {
-  new SoundInfo(122, "Initial Revelry.mp3"),
-  new SoundInfo(104, "Calling.mp3"),
-};
-
-// bgBrightness: Background brightness(0 - black / 360 - white)
-float bgBrightness = 0;
+// fps: Frame per second
+final int fps = 15;
 
 //
 // Classes
 //
 
-final class SoundInfo
+final class SceneInfo
 {
   public final float tempo;
   public final String filePath;
+  public final color bgColor;
+  public final String visualizer;
 
-  SoundInfo(
+  SceneInfo(
     float t,
-    String path)
+    String path,
+    color bg,
+    String v)
   {
     tempo = t;
     filePath = path;
+    bgColor = bg;
+    visualizer = v;
   }
 }
 
@@ -143,6 +140,7 @@ abstract class VisualProcessor<T>
       endShape();
   }  
 
+  abstract boolean matchName(String name);
   abstract void addPoint(float angle, FFT rightFft, FFT leftFft);
   abstract void visualize(float angle);
 }
@@ -231,6 +229,12 @@ final class ChannelCurveVisualProcessor extends VisualProcessor<ChannelPointInfo
     }
   }
   
+  boolean matchName(
+    String name)
+  {
+    return name.equals("curve");
+  }
+  
   void addPoint(
     float angle,
     FFT rightFft,
@@ -304,6 +308,12 @@ final class ChannelSphereVisualProcessor extends VisualProcessor<ChannelPointInf
     }
   }
   
+  boolean matchName(
+    String name)
+  {
+    return name.equals("sphere");
+  }
+  
   void addPoint(
     float angle,
     FFT rightFft,
@@ -322,9 +332,13 @@ final class ChannelSphereVisualProcessor extends VisualProcessor<ChannelPointInf
 
 final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRingSwayingVisualProcessor.Boids>
 {
-  // http://coderecipe.jp/recipe/gRrj53OPQF/
+  /*
+   * Reference Web page URL:
+   * http://coderecipe.jp/recipe/gRrj53OPQF/
+   * http://neareal.net/index.php?ComputerGraphics%2FUnity%2FTips%2FBoids%20Model
+   */
   
-  final class Boids extends ChannelPointInfo
+  private final class Boids extends ChannelPointInfo
   {
     final PVector velocity;
     int age;
@@ -444,6 +458,13 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
     }
   }
 
+  private class BoidsComparator implements Comparator<Boids> {
+    public int compare(Boids lhs, Boids rhs) {
+      return (int)(rhs.z - lhs.z);
+    }
+  }
+
+  private final BoidsComparator comparator = new BoidsComparator();
   private final int AGE_LIMIT = 20;  
   private final float distFromOrigin;
   private final float maxSampleRate;
@@ -522,6 +543,12 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
     }
   }
   
+  boolean matchName(
+    String name)
+  {
+    return name.equals("ringSwaying");
+  }
+  
   void addPoint(
     float angle,
     FFT rightFft,
@@ -535,6 +562,8 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
     }
     soundPoints.rightChannelPoints.add(createPoint(angle, rightFft));
     soundPoints.leftChannelPoints.add(createPoint((angle + 180) % 360, leftFft));
+    Collections.sort(soundPoints.rightChannelPoints, comparator);
+    Collections.sort(soundPoints.leftChannelPoints, comparator);
   }
   
   void visualize(
@@ -557,21 +586,40 @@ AudioPlayer player;
 FFT rightFft;
 FFT leftFft;
 MovieMaker movie;
+List<SceneInfo> scenes;
+boolean repeatPlayback;
+color bgColor = color(0);
 
 //
 // Methods
 //
 
+void initMusics()
+{
+  XMLElement playlistDef = new XMLElement(this, "playlist.xml");
+  scenes = new ArrayList<SceneInfo>();
+  for (XMLElement scene : playlistDef.getChildren()) {
+    String colorHex = scene.getStringAttribute("backgroundColor");
+    scenes.add(new SceneInfo(scene.getFloatAttribute("tempo"),
+                             scene.getStringAttribute("file"),
+                             color(Integer.decode(colorHex)),
+                             scene.getStringAttribute("visualizer")));
+  }
+  repeatPlayback = (playlistDef.getStringAttribute("repeat").toLowerCase() == "yes");
+}
+
 float getTempo()
 {
-  return sounds[infoIndex].tempo;
+  return scenes.get(infoIndex).tempo;
 }
 
 void playNewSound()
 {
-  background(bgBrightness);
+  SceneInfo scene = scenes.get(infoIndex);
+  bgColor = scene.bgColor;
+  background(bgColor);
   
-  player = minim.loadFile(sounds[infoIndex].filePath, 1024);
+  player = minim.loadFile(scene.filePath, 1024);
   rightFft = new FFT(player.bufferSize(), player.sampleRate());
   leftFft = new FFT(player.bufferSize(), player.sampleRate());
 
@@ -579,6 +627,15 @@ void playNewSound()
   processors.add(new ChannelSphereVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelCurveVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelRingSwayingVisualProcessor(screenScale, height / 6, player.sampleRate() / 2, rightFft.specSize() / 10, getTempo()));
+  
+  if (scene.visualizer != null && scene.visualizer.isEmpty() == false) {
+    for (int index = 0; index < processors.size() - 1; ++index) {
+      if (processors.get(index).matchName(scene.visualizer)) {
+        processors.add(processors.remove(index));
+        break;
+      }
+    }
+  }
   
   player.play();
 }
@@ -590,10 +647,11 @@ void setup()
   colorMode(HSB, 360, 100, 100, 100);
   lights();
   noStroke();
-  frameRate(15);
+  frameRate(fps);
 
+  initMusics();
   if (record) {
-    movie = new MovieMaker(this, width, height, "movie.mov", 15, MovieMaker.MOTION_JPEG_A, MovieMaker.BEST);
+    movie = new MovieMaker(this, width, height, "movie.mov", fps, MovieMaker.MOTION_JPEG_A, MovieMaker.BEST);
   }
   
   minim = new Minim(this);
@@ -616,7 +674,7 @@ void draw()
 {
   if (player.isPlaying() == false) {
     ++infoIndex;
-    if (sounds.length <= infoIndex) {
+    if (scenes.size() <= infoIndex) {
       if (repeatPlayback) {
         infoIndex = 0;
       }
@@ -635,7 +693,7 @@ void draw()
   rightFft.forward(player.right);
   leftFft.forward(player.left);
 
-  background(bgBrightness);
+  background(bgColor);
   translate(width / 2, height / 2);
   
   processors.get(processors.size() - 1).addPoint(angle, rightFft, leftFft);
@@ -659,7 +717,7 @@ void draw()
 
 void mousePressed(){
   if (mouseButton == LEFT) {
-    bgBrightness = bgBrightness == 0 ? 360 : 0;
+    bgColor = ~bgColor;
   }
 } 
 
