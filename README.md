@@ -10,9 +10,12 @@ Usage
 2. Open .pde.
 3. Run.
 
-
 Update history
 --------------
+
+### 2015-06-07
+
+* Add "ChannelHexagonVisualProcessor".
 
 ### 2015-04-01
 
