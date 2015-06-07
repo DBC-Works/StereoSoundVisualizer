@@ -2,7 +2,7 @@
  * StereoSoundVisualizer
  * for Processing 1.5.1(not for Processing 2.x)
  * @author Sad Juno
- * @version 201504
+ * @version 201506
  * @link https://github.com/DBC-Works
  * @license http://opensource.org/licenses/MIT
  */
@@ -139,6 +139,19 @@ abstract class VisualProcessor<T>
       curveVertex(r, 0, 0);
       endShape();
   }  
+  
+  protected final void hexagon(
+    float r)
+  {
+      beginShape();
+      vertex(r, 0, 0);
+      for (int a = 0; a <= 360; a += 360 / 6) {
+        final float rad = radians(a);
+        vertex(r * cos(rad), r * sin(rad), 0);
+      }
+      vertex(r, 0, 0);
+      endShape();
+  }  
 
   abstract boolean matchName(String name);
   abstract void addPoint(float angle, FFT rightFft, FFT leftFft);
@@ -242,6 +255,118 @@ final class ChannelCurveVisualProcessor extends VisualProcessor<ChannelPointInfo
   {
     soundPoints.rightChannelPoints.add(createPoint(angle, rightFft));
     soundPoints.leftChannelPoints.add(createPoint((angle + 180) % 360, leftFft));
+  }
+
+  void visualize(
+    float angle)
+  {
+    noFill();
+    processChannel(soundPoints.rightChannelPoints, angle, false);
+    processChannel(soundPoints.leftChannelPoints, (angle + 180) % 360, true);
+  }
+}
+
+/**/
+final class ChannelHexagonVisualProcessor extends VisualProcessor<ChannelPointInfo>
+{
+  private final float distFromOrigin;
+  private final float maxSampleRate;
+  private final float hueBasis = 200;
+  private final int zAmount = 200;
+  private final int depthCount = 50;
+  
+  ChannelHexagonVisualProcessor(
+    float screenScale,
+    float dist,
+    float maxRate,
+    int indexSize)
+  {
+    super(screenScale, indexSize);
+
+    distFromOrigin = dist;
+    maxSampleRate = maxRate;
+  }
+  
+  private ChannelPointInfo createPoint(
+    float angle,
+    FFT fft)
+  {
+    final float r = radians(angle);
+    return new ChannelPointInfo(distFromOrigin * cos(r), distFromOrigin * sin(r), (-zAmount * screenScale) * depthCount, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+  }
+  
+  private float getIndexMap(
+    int index)
+  {
+    float val = map(index, 0, hzIndexSize, 0, 360);
+    if (hueBasis < val) {
+      val -= hueBasis;
+    }
+    else {
+      val += (360 - hueBasis);
+    }
+    return 360 - val;
+  }
+  
+  private void processChannel(
+    List<ChannelPointInfo> channelPoints,
+    float angle,
+    boolean asLeft)
+  {
+    float weight = 4 * screenScale;
+    strokeWeight(weight);
+    
+    int index = 0;
+    while (index < channelPoints.size()) {
+      ChannelPointInfo info = channelPoints.get(index);
+      if (0 < info.z) {
+        channelPoints.remove(index);
+      }
+      else {
+        info.z += zAmount * screenScale;
+
+        stroke(getIndexMap(info.maxLevelHzIndex), 40, 100, 60);
+        float amp = info.averageAmplitude * (200 * screenScale) * (asLeft ? 1 : -1);
+        float x = info.x + amp;
+        translate(x, info.y, info.z);
+        hexagon(abs(amp));
+        translate(-x, -info.y, -info.z);
+
+        ++index;
+      }
+    }
+
+    curveTightness(0);
+    beginShape();
+    for (ChannelPointInfo info : channelPoints) {
+      stroke(getIndexMap(info.maxLevelHzIndex), 40, 100, 60);
+      float amp = info.averageAmplitude * (200 * screenScale) * (asLeft ? 1 : -1);
+      curveVertex(info.x + amp, info.y + amp, info.z);
+    }
+    if (1 < channelPoints.size()) {
+      ChannelPointInfo lastInfo = channelPoints.get(channelPoints.size() - 1);
+      curveVertex(lastInfo.x, lastInfo.y, 0);
+    }
+    endShape();
+  }
+  
+  boolean matchName(
+    String name)
+  {
+    return name.equals("hexagon");
+  }
+  
+  void addPoint(
+    float angle,
+    FFT rightFft,
+    FFT leftFft)
+  {
+    if (beatDetector.isKick()) {
+      soundPoints.rightChannelPoints.add(createPoint(0, rightFft));
+    }
+    if (beatDetector.isHat()) {
+      soundPoints.leftChannelPoints.add(createPoint(180, leftFft));
+    }
   }
 
   void visualize(
@@ -586,6 +711,7 @@ AudioPlayer player;
 FFT rightFft;
 FFT leftFft;
 MovieMaker movie;
+BeatDetect beatDetector;
 List<SceneInfo> scenes;
 boolean repeatPlayback;
 color bgColor = color(0);
@@ -626,6 +752,7 @@ void playNewSound()
   processors.clear();
   processors.add(new ChannelSphereVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelCurveVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
+  processors.add(new ChannelHexagonVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelRingSwayingVisualProcessor(screenScale, height / 6, player.sampleRate() / 2, rightFft.specSize() / 10, getTempo()));
   
   if (scene.visualizer != null && scene.visualizer.isEmpty() == false) {
@@ -650,6 +777,8 @@ void setup()
   frameRate(fps);
 
   initMusics();
+  beatDetector = new BeatDetect();
+  beatDetector.detectMode(BeatDetect.FREQ_ENERGY);
   if (record) {
     movie = new MovieMaker(this, width, height, "movie.mov", fps, MovieMaker.MOTION_JPEG_A, MovieMaker.BEST);
   }
@@ -690,6 +819,7 @@ void draw()
     playNewSound();
   }
 
+  beatDetector.detect(player.mix);
   rightFft.forward(player.right);
   leftFft.forward(player.left);
 
