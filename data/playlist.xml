@@ -8,9 +8,10 @@
 		backgroundColor="#FFFFFF"
 		visualizer="ringSwaying"
 	/>
+	visualizer : ["ringSwaying", "curve", "sphere" ]
  -->
-	<scene tempo="112" file="D:\Workplace\Music\Vigilance Activities\Vigilance Activities.wav"
+	<scene tempo="118" file="D:\\Workplace\\Music\\Life Painful\\Life Painful.play as is.wav"
 		backgroundColor="#000000"
-		visualizer="ringSwaying"
+		visualizer="spinningHexagon"
 	/>
 </playlist>
