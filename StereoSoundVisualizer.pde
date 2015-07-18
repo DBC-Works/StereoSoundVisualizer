@@ -147,7 +147,7 @@ abstract class VisualProcessor<T>
       curveVertex(r, 0, 0);
       endShape();
   }  
-  
+
   protected final void hexagon(
     float r,
     float deg)
