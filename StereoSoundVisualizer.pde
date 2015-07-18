@@ -170,7 +170,13 @@ abstract class VisualProcessor<T>
     hexagon(r, 0);
   }  
 
-  abstract boolean matchName(String name);
+  protected final boolean matchName(
+    String name)
+  {
+    return name.equals(getName());
+  }
+
+  abstract String getName();
   abstract void addPoint(float angle, FFT rightFft, FFT leftFft);
   abstract void visualize(float angle);
 }
@@ -251,11 +257,10 @@ final class ChannelCurveVisualProcessor extends VisualProcessor<ChannelPointInfo
       popMatrix();
     }
   }
-  
-  boolean matchName(
-    String name)
+
+  String getName()
   {
-    return name.equals("curve");
+    return "curve";
   }
   
   void addPoint(
@@ -352,10 +357,9 @@ final class ChannelHexagonVisualProcessor extends VisualProcessor<ChannelPointIn
     endShape();
   }
   
-  boolean matchName(
-    String name)
+  String getName()
   {
-    return name.equals("hexagon");
+    return "hexagon";
   }
   
   void addPoint(
@@ -444,11 +448,10 @@ final class ChannelSpinningHexagonVisualProcessor extends VisualProcessor<Channe
       }
     }
   }
-  
-  boolean matchName(
-    String name)
+
+  String getName()
   {
-    return name.equals("spinningHexagon");
+    return "spinningHexagon";
   }
   
   void addPoint(
@@ -530,10 +533,9 @@ final class ChannelSphereVisualProcessor extends VisualProcessor<ChannelPointInf
     }
   }
   
-  boolean matchName(
-    String name)
+  String getName()
   {
-    return name.equals("sphere");
+    return "sphere";
   }
   
   void addPoint(
@@ -758,10 +760,9 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
     }
   }
   
-  boolean matchName(
-    String name)
+  String getName()
   {
-    return name.equals("ringSwaying");
+    return "ringSwaying";
   }
   
   void addPoint(
@@ -803,6 +804,7 @@ FFT leftFft;
 MovieMaker movie;
 BeatDetect beatDetector;
 List<SceneInfo> scenes;
+List<String> visualizers;
 boolean repeatPlayback;
 color bgColor = color(0);
 
@@ -814,12 +816,22 @@ void initMusics()
 {
   XMLElement playlistDef = new XMLElement(this, "playlist.xml");
   scenes = new ArrayList<SceneInfo>();
-  for (XMLElement scene : playlistDef.getChildren()) {
-    String colorHex = scene.getStringAttribute("backgroundColor");
-    scenes.add(new SceneInfo(scene.getFloatAttribute("tempo"),
-                             scene.getStringAttribute("file"),
-                             color(Integer.decode(colorHex)),
-                             scene.getStringAttribute("visualizer")));
+  for (XMLElement child : playlistDef.getChildren()) {
+    if (child.getName().equals("scenes")) {
+      for (XMLElement scene : child.getChildren()) {
+        String colorHex = scene.getStringAttribute("backgroundColor");
+        scenes.add(new SceneInfo(scene.getFloatAttribute("tempo"),
+                                 scene.getStringAttribute("file"),
+                                 color(Integer.decode(colorHex)),
+                                 scene.getStringAttribute("visualizer")));
+      }
+    }
+    else if (child.getName().equals("visualizers")) {
+      visualizers = new ArrayList<String>();
+      for (XMLElement visualizer : child.getChildren()) {
+        visualizers.add(visualizer.getContent());
+      }
+    }
   }
   repeatPlayback = (playlistDef.getStringAttribute("repeat").toLowerCase() == "yes");
 }
@@ -845,7 +857,16 @@ void playNewSound()
   processors.add(new ChannelHexagonVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelSpinningHexagonVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelRingSwayingVisualProcessor(screenScale, height / 6, player.sampleRate() / 2, rightFft.specSize() / 10, getTempo()));
-  
+
+  if (visualizers.isEmpty() == false) {
+    Iterator it =  processors.iterator();
+    while (it.hasNext()) {
+      if (visualizers.contains(((VisualProcessor)it.next()).getName()) == false) {
+        it.remove();
+      }
+    }
+  }
+
   if (scene.visualizer != null && scene.visualizer.isEmpty() == false) {
     for (int index = 0; index < processors.size() - 1; ++index) {
       if (processors.get(index).matchName(scene.visualizer)) {

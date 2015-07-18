@@ -1,17 +1,19 @@
 <playlist repeat="no">
-<!--
-	<scene tempo="122" file="Initial Revelry.mp3"
-		backgroundColor="#000000"
-		visualizer="sphere"
-	/>
-	<scene tempo="104" file="Calling.mp3"
-		backgroundColor="#FFFFFF"
-		visualizer="ringSwaying"
-	/>
-	visualizer : ["ringSwaying", "curve", "sphere" ]
- -->
-	<scene tempo="118" file="D:\\Workplace\\Music\\Life Painful\\Life Painful.play as is.wav"
-		backgroundColor="#000000"
-		visualizer="spinningHexagon"
-	/>
+	<visualizers>
+		<visualizer>curve</visualizer>
+		<visualizer>hexagon</visualizer>
+		<visualizer>spinningHexagon</visualizer>
+		<visualizer>sphere</visualizer>
+		<visualizer>ringSwaying</visualizer>
+	</visualizers>
+	<scenes>
+		<scene tempo="122" file="Initial Revelry.mp3"
+			backgroundColor="#000000"
+			visualizer="sphere"
+		/>
+		<scene tempo="104" file="Calling.mp3"
+			backgroundColor="#FFFFFF"
+			visualizer="ringSwaying"
+		/>
+	</scenes>
 </playlist>
