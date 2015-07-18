@@ -13,6 +13,11 @@ Usage
 Update history
 --------------
 
+### 2015-07-18
+
+* Add "ChannelSpinningHexagonVisualProcessor".
+* New function: visualizer assignment.
+
 ### 2015-06-07
 
 * Add "ChannelHexagonVisualProcessor".
