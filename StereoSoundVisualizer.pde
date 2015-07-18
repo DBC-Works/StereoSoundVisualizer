@@ -2,7 +2,7 @@
  * StereoSoundVisualizer
  * for Processing 1.5.1(not for Processing 2.x)
  * @author Sad Juno
- * @version 201506
+ * @version 201507
  * @link https://github.com/DBC-Works
  * @license http://opensource.org/licenses/MIT
  */
@@ -126,6 +126,14 @@ abstract class VisualProcessor<T>
     }
     return maxIndex;
   }
+  
+  protected float getIndexMap(
+    float hueBasis,
+    int index)
+  {
+    float val = map(index, 0, hzIndexSize, 0, 360);
+    return hueBasis < val ? val - hueBasis : val + (360 - hueBasis);
+  }
 
   protected final void circle(
     float r)
@@ -141,8 +149,10 @@ abstract class VisualProcessor<T>
   }  
   
   protected final void hexagon(
-    float r)
+    float r,
+    float deg)
   {
+      rotate(radians(deg));
       beginShape();
       vertex(r, 0, 0);
       for (int a = 0; a <= 360; a += 360 / 6) {
@@ -151,6 +161,13 @@ abstract class VisualProcessor<T>
       }
       vertex(r, 0, 0);
       endShape();
+      rotate(-radians(deg));
+  }  
+  
+  protected final void hexagon(
+    float r)
+  {
+    hexagon(r, 0);
   }  
 
   abstract boolean matchName(String name);
@@ -189,14 +206,7 @@ final class ChannelCurveVisualProcessor extends VisualProcessor<ChannelPointInfo
   private float getIndexMap(
     int index)
   {
-    float val = map(index, 0, hzIndexSize, 0, 360);
-    if (hueBasis < val) {
-      val -= hueBasis;
-    }
-    else {
-      val += (360 - hueBasis);
-    }
-    return 360 - val;
+    return 360 - getIndexMap(hueBasis, index);
   }
   
   private void processChannel(
@@ -266,7 +276,6 @@ final class ChannelCurveVisualProcessor extends VisualProcessor<ChannelPointInfo
   }
 }
 
-/**/
 final class ChannelHexagonVisualProcessor extends VisualProcessor<ChannelPointInfo>
 {
   private final float distFromOrigin;
@@ -298,14 +307,7 @@ final class ChannelHexagonVisualProcessor extends VisualProcessor<ChannelPointIn
   private float getIndexMap(
     int index)
   {
-    float val = map(index, 0, hzIndexSize, 0, 360);
-    if (hueBasis < val) {
-      val -= hueBasis;
-    }
-    else {
-      val += (360 - hueBasis);
-    }
-    return 360 - val;
+    return 360 - getIndexMap(hueBasis, index);
   }
   
   private void processChannel(
@@ -375,6 +377,101 @@ final class ChannelHexagonVisualProcessor extends VisualProcessor<ChannelPointIn
     noFill();
     processChannel(soundPoints.rightChannelPoints, angle, false);
     processChannel(soundPoints.leftChannelPoints, (angle + 180) % 360, true);
+  }
+}
+
+final class ChannelSpinningHexagonVisualProcessor extends VisualProcessor<ChannelPointInfo>
+{
+  private final float distFromOrigin;
+  private final float maxSampleRate;
+  private final float hueBasis = 90;
+  private final int zAmount = 400;
+  private final int depthCount = 50;
+
+  private float rotation = 0;
+  
+  ChannelSpinningHexagonVisualProcessor(
+    float screenScale,
+    float dist,
+    float maxRate,
+    int indexSize)
+  {
+    super(screenScale, indexSize);
+
+    distFromOrigin = dist;
+    maxSampleRate = maxRate;
+  }
+  
+  private ChannelPointInfo createPoint(
+    float angle,
+    FFT fft)
+  {
+    final float r = radians(angle);
+    return new ChannelPointInfo(distFromOrigin * cos(r), distFromOrigin * sin(r), 0, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+  }
+  
+  private float getIndexMap(
+    int index)
+  {
+    return 360 - getIndexMap(hueBasis, index);
+  }
+  
+  private void processChannel(
+    List<ChannelPointInfo> channelPoints,
+    float angle,
+    boolean asLeft)
+  {
+    float weight = 4 * screenScale;
+    strokeWeight(weight);
+    
+    int index = 0;
+    while (index < channelPoints.size()) {
+      ChannelPointInfo info = channelPoints.get(index);
+      if (info.z < (-zAmount * screenScale) * depthCount) {
+        channelPoints.remove(index);
+      }
+      else {
+        info.z -= zAmount * screenScale;
+
+        stroke(getIndexMap(info.maxLevelHzIndex), 40, 100, 60);
+        float amp = info.averageAmplitude * (200 * screenScale) * (asLeft ? 1 : -1);
+        float x = info.x + amp;
+        translate(x, info.y, info.z);
+        hexagon(abs(amp), angle * amp);
+        translate(-x, -info.y, -info.z);
+
+        ++index;
+      }
+    }
+  }
+  
+  boolean matchName(
+    String name)
+  {
+    return name.equals("spinningHexagon");
+  }
+  
+  void addPoint(
+    float angle,
+    FFT rightFft,
+    FFT leftFft)
+  {
+    soundPoints.rightChannelPoints.add(createPoint(angle, rightFft));
+    soundPoints.leftChannelPoints.add(createPoint((angle + 180) % 360, leftFft));
+  }
+
+  void visualize(
+    float angle)
+  {
+    noFill();
+    rotate(radians(rotation));
+    processChannel(soundPoints.rightChannelPoints, angle, false);
+    processChannel(soundPoints.leftChannelPoints, (angle + 180) % 360, true);
+    
+    rotation += 360 * (((60.0 / getTempo()) / 2) / frameRate);
+    if (360 <= rotation) {
+      rotation = 0;
+    }
   }
 }
 
@@ -621,14 +718,7 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
   private float getIndexMap(
     int index)
   {
-    float val = map(index, 0, hzIndexSize, 0, 360);
-    if (hueBasis < val) {
-      val -= hueBasis;
-    }
-    else {
-      val += (360 - hueBasis);
-    }
-    return 360 - val;
+    return 360 - getIndexMap(hueBasis, index);
   }
   
   private void processChannel(
@@ -753,6 +843,7 @@ void playNewSound()
   processors.add(new ChannelSphereVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelCurveVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelHexagonVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
+  processors.add(new ChannelSpinningHexagonVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelRingSwayingVisualProcessor(screenScale, height / 6, player.sampleRate() / 2, rightFft.specSize() / 10, getTempo()));
   
   if (scene.visualizer != null && scene.visualizer.isEmpty() == false) {
