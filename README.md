@@ -13,6 +13,11 @@ Usage
 Update history
 --------------
 
+### 2015-09-13
+
+* Add "ChannelLineTunnelVisualProcessor".
+* Refactor some codes.
+
 ### 2015-07-18
 
 * Add "ChannelSpinningHexagonVisualProcessor".

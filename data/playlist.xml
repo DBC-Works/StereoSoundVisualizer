@@ -5,8 +5,14 @@
 		<visualizer>spinningHexagon</visualizer>
 		<visualizer>sphere</visualizer>
 		<visualizer>ringSwaying</visualizer>
+
+		<visualizer>lineTunnel</visualizer>
 	</visualizers>
 	<scenes>
+		<!--
+		 backgroundColor:
+			* aliceBlue - #f0f8ff
+		 -->
 		<scene tempo="122" file="Initial Revelry.mp3"
 			backgroundColor="#000000"
 			visualizer="sphere"

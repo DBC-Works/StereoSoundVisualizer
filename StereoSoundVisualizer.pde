@@ -2,7 +2,7 @@
  * StereoSoundVisualizer
  * for Processing 1.5.1(not for Processing 2.x)
  * @author Sad Juno
- * @version 201507
+ * @version 201509
  * @link https://github.com/DBC-Works
  * @license http://opensource.org/licenses/MIT
  */
@@ -93,23 +93,49 @@ final class SoundPoints<T>
   }
 }
 
+final class CirclePointCreator
+{
+  final float distFromOrigin;
+  
+  CirclePointCreator(float dist)
+  {
+    distFromOrigin = dist;
+  }
+  
+  PVector create(float angle)
+  {
+    final float r = radians(angle);
+    return new PVector(distFromOrigin * cos(r), distFromOrigin * sin(r));
+  }
+}
+
 abstract class VisualProcessor<T>
 {
   protected final SoundPoints<T> soundPoints = new SoundPoints<T>();
   protected final float screenScale;
+  protected final float maxSampleRate;
   protected final int hzIndexSize;
   
   protected VisualProcessor(
     float scale,
+    float maxRate,
     int indexSize)
   {
     screenScale = scale;
+    maxSampleRate = maxRate;
     hzIndexSize = indexSize;
   }
   
   final boolean isEmpty()
   {
     return soundPoints.isEmpty();
+  }
+  
+  final void prepareDrawing()
+  {
+    if (requireEraseBackground()) {
+      background(bgColor);
+    }
   }
   
   protected final int getMaxBandIndex(
@@ -178,35 +204,65 @@ abstract class VisualProcessor<T>
 
   abstract String getName();
   abstract void addPoint(float angle, FFT rightFft, FFT leftFft);
-  abstract void visualize(float angle);
+  abstract void visualize(boolean asPrimary, float angle);
+
+  protected boolean requireEraseBackground()
+  {
+    return true;
+  }
 }
 
-final class ChannelCurveVisualProcessor extends VisualProcessor<ChannelPointInfo>
+abstract class ChannelPointVisualProcessor extends VisualProcessor<ChannelPointInfo>
 {
-  private final float distFromOrigin;
-  private final float maxSampleRate;
+  protected final CirclePointCreator pointCreator;
+  
+  ChannelPointVisualProcessor(
+    float screenScale,
+    float dist,
+    float maxRate,
+    int indexSize)
+  {
+    super(screenScale, maxRate, indexSize);
+
+    pointCreator = new CirclePointCreator(dist);
+  }
+  
+  protected final PVector createCirclePoint(
+    float angle)
+  {
+    return pointCreator.create(angle);
+  }
+  
+  protected final ChannelPointInfo createPoint(
+    float angle,
+    float z,
+    FFT fft)
+  {
+    final PVector pt = createCirclePoint(angle);
+    return new ChannelPointInfo(pt.x, pt.y, z, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+  }
+}
+
+final class ChannelCurveVisualProcessor extends ChannelPointVisualProcessor
+{
   private final float hueBasis = 300;
   private final int zAmount = 200;
   private final int depthCount = 50;
-  
+
   ChannelCurveVisualProcessor(
     float screenScale,
     float dist,
     float maxRate,
     int indexSize)
   {
-    super(screenScale, indexSize);
-
-    distFromOrigin = dist;
-    maxSampleRate = maxRate;
+    super(screenScale, dist, maxRate, indexSize);
   }
   
   private ChannelPointInfo createPoint(
     float angle,
     FFT fft)
   {
-    final float r = radians(angle);
-    return new ChannelPointInfo(distFromOrigin * cos(r), distFromOrigin * sin(r), (-zAmount * screenScale) * depthCount, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+    return createPoint(angle, (-zAmount * screenScale) * depthCount, fft);
   }
   
   private float getIndexMap(
@@ -273,6 +329,7 @@ final class ChannelCurveVisualProcessor extends VisualProcessor<ChannelPointInfo
   }
 
   void visualize(
+    boolean asPrimary,
     float angle)
   {
     noFill();
@@ -281,10 +338,97 @@ final class ChannelCurveVisualProcessor extends VisualProcessor<ChannelPointInfo
   }
 }
 
-final class ChannelHexagonVisualProcessor extends VisualProcessor<ChannelPointInfo>
+final class ChannelLineTunnelVisualProcessor extends ChannelPointVisualProcessor
 {
-  private final float distFromOrigin;
-  private final float maxSampleRate;
+  private final float hueBasis = 300;
+  private final int zAmount = 50;
+  private final int depthCount = 50;
+  
+  ChannelLineTunnelVisualProcessor(
+    float screenScale,
+    float dist,
+    float maxRate,
+    int indexSize)
+  {
+    super(screenScale, dist, maxRate, indexSize);
+  }
+  
+  private ChannelPointInfo createPoint(
+    float angle,
+    FFT fft)
+  {
+    return createPoint(angle, (-zAmount * screenScale) * depthCount, fft);
+  }
+  
+  private float getIndexMap(
+    int index)
+  {
+    return getIndexMap(hueBasis, index);
+  }
+  
+  private void processChannel(
+    List<ChannelPointInfo> channelPoints,
+    float angle,
+    boolean asLeft)
+  {
+    curveTightness((angle - 180) / 180);
+    
+    float weight = 4 * screenScale;
+    strokeWeight(weight);
+    
+    beginShape();
+    int index = 0;
+    while (index < channelPoints.size()) {
+      ChannelPointInfo info = channelPoints.get(index);
+      if (0 < info.z) {
+        channelPoints.remove(index);
+      }
+      else {
+        info.z += zAmount * screenScale;
+        
+        stroke(getIndexMap(info.maxLevelHzIndex), 40, 100, 10);
+        float amp = info.averageAmplitude * (100 * screenScale) * (asLeft ? 1 : -1);
+        curveVertex(info.x + amp, info.y + amp, info.z);
+        ++index;
+      }
+    }
+    endShape();
+    
+    curveTightness(0);
+  }
+
+  String getName()
+  {
+    return "lineTunnel";
+  }
+  
+  void addPoint(
+    float angle,
+    FFT rightFft,
+    FFT leftFft)
+  {
+    soundPoints.rightChannelPoints.add(createPoint(angle, rightFft));
+    soundPoints.leftChannelPoints.add(createPoint((angle + 180) % 360, leftFft));
+  }
+
+  void visualize(
+    boolean asPrimary,
+    float angle)
+  {
+    noFill();
+    rotate(radians(angle));
+    processChannel(soundPoints.rightChannelPoints, angle, false);
+    processChannel(soundPoints.leftChannelPoints, (angle + 180) % 360, true);
+    rotate(-radians(angle));
+  }
+  protected boolean requireEraseBackground()
+  {
+    return false;
+  }
+}
+
+final class ChannelHexagonVisualProcessor extends ChannelPointVisualProcessor
+{
   private final float hueBasis = 200;
   private final int zAmount = 200;
   private final int depthCount = 50;
@@ -295,18 +439,14 @@ final class ChannelHexagonVisualProcessor extends VisualProcessor<ChannelPointIn
     float maxRate,
     int indexSize)
   {
-    super(screenScale, indexSize);
-
-    distFromOrigin = dist;
-    maxSampleRate = maxRate;
+    super(screenScale, dist, maxRate, indexSize);
   }
   
   private ChannelPointInfo createPoint(
     float angle,
     FFT fft)
   {
-    final float r = radians(angle);
-    return new ChannelPointInfo(distFromOrigin * cos(r), distFromOrigin * sin(r), (-zAmount * screenScale) * depthCount, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+    return createPoint(angle, (-zAmount * screenScale) * depthCount, fft);
   }
   
   private float getIndexMap(
@@ -376,6 +516,7 @@ final class ChannelHexagonVisualProcessor extends VisualProcessor<ChannelPointIn
   }
 
   void visualize(
+    boolean asPrimary,
     float angle)
   {
     noFill();
@@ -384,10 +525,8 @@ final class ChannelHexagonVisualProcessor extends VisualProcessor<ChannelPointIn
   }
 }
 
-final class ChannelSpinningHexagonVisualProcessor extends VisualProcessor<ChannelPointInfo>
+final class ChannelSpinningHexagonVisualProcessor extends ChannelPointVisualProcessor
 {
-  private final float distFromOrigin;
-  private final float maxSampleRate;
   private final float hueBasis = 90;
   private final int zAmount = 400;
   private final int depthCount = 50;
@@ -400,18 +539,14 @@ final class ChannelSpinningHexagonVisualProcessor extends VisualProcessor<Channe
     float maxRate,
     int indexSize)
   {
-    super(screenScale, indexSize);
-
-    distFromOrigin = dist;
-    maxSampleRate = maxRate;
+    super(screenScale, dist, maxRate, indexSize);
   }
   
   private ChannelPointInfo createPoint(
     float angle,
     FFT fft)
   {
-    final float r = radians(angle);
-    return new ChannelPointInfo(distFromOrigin * cos(r), distFromOrigin * sin(r), 0, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+    return createPoint(angle, 0, fft);
   }
   
   private float getIndexMap(
@@ -464,6 +599,7 @@ final class ChannelSpinningHexagonVisualProcessor extends VisualProcessor<Channe
   }
 
   void visualize(
+    boolean asPrimary,
     float angle)
   {
     noFill();
@@ -478,29 +614,22 @@ final class ChannelSpinningHexagonVisualProcessor extends VisualProcessor<Channe
   }
 }
 
-final class ChannelSphereVisualProcessor extends VisualProcessor<ChannelPointInfo>
+final class ChannelSphereVisualProcessor extends ChannelPointVisualProcessor
 {
-  private final float distFromOrigin;
-  private final float maxSampleRate;
-  
   ChannelSphereVisualProcessor(
     float screenScale,
     float dist,
     float maxRate,
     int indexSize)
   {
-    super(screenScale, indexSize);
-    
-    distFromOrigin = dist;
-    maxSampleRate = maxRate;
+    super(screenScale, dist, maxRate, indexSize);
   }
   
   private ChannelPointInfo createPoint(
     float angle,
     FFT fft)
   {
-    final float r = radians(angle);
-    return new ChannelPointInfo(distFromOrigin * cos(r), distFromOrigin * sin(r), (-200 * screenScale) * 9, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+    return createPoint(angle, (-200 * screenScale) * 9, fft);
   }
   
   private float getIndexMap(
@@ -547,6 +676,7 @@ final class ChannelSphereVisualProcessor extends VisualProcessor<ChannelPointInf
     soundPoints.leftChannelPoints.add(createPoint((angle + 180) % 360, leftFft));
   }
   void visualize(
+    boolean asPrimary,
     float angle)
   {
     processChannel(soundPoints.rightChannelPoints, false);
@@ -690,9 +820,9 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
 
   private final BoidsComparator comparator = new BoidsComparator();
   private final int AGE_LIMIT = 20;  
-  private final float distFromOrigin;
-  private final float maxSampleRate;
   private final float hueBasis = 300;
+
+  private final CirclePointCreator pointCreator;
 
   ChannelRingSwayingVisualProcessor(
     float screenScale,
@@ -701,11 +831,9 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
     int indexSize,
     float tempo)
   {
-    super(screenScale, indexSize);
+    super(screenScale, maxRate, indexSize);
     
-    distFromOrigin = dist;
-    maxSampleRate = maxRate;
-    
+    pointCreator = new CirclePointCreator(dist);      
     randomSeed((int)tempo);
   }
   
@@ -713,8 +841,8 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
     float angle,
     FFT fft)
   {
-    final float r = radians(angle);
-    return new Boids(distFromOrigin * cos(r), distFromOrigin * sin(r), -distFromOrigin / 4, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+    final PVector pt = pointCreator.create(angle);
+    return new Boids(pt.x, pt.y, -pointCreator.distFromOrigin / 4, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
   }
   
   private float getIndexMap(
@@ -725,7 +853,8 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
   
   private void processChannel(
     List<Boids> channelPoints,
-    boolean asLeft)
+    boolean asLeft,
+    boolean asPrimary)
   {
     noFill();
     strokeWeight(2 * screenScale);
@@ -742,6 +871,9 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
       if (AGE_LIMIT < boids.age) {
         it.remove();
       }
+    }
+    if (asPrimary == false && channelPoints.isEmpty() == false) {
+      channelPoints.remove(0);
     }
     
     for (Boids boids : channelPoints) {
@@ -783,10 +915,15 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
   }
   
   void visualize(
+    boolean asPrimary,
     float angle)
   {
-    processChannel(soundPoints.rightChannelPoints, false);
-    processChannel(soundPoints.leftChannelPoints, true);
+    processChannel(soundPoints.rightChannelPoints, false, asPrimary);
+    processChannel(soundPoints.leftChannelPoints, true, asPrimary);
+  }
+
+  protected void doPrepareDrawing()
+  {
   }
 }
 
@@ -854,6 +991,7 @@ void playNewSound()
   processors.clear();
   processors.add(new ChannelSphereVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelCurveVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
+  processors.add(new ChannelLineTunnelVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelHexagonVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelSpinningHexagonVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelRingSwayingVisualProcessor(screenScale, height / 6, player.sampleRate() / 2, rightFft.specSize() / 10, getTempo()));
@@ -935,13 +1073,22 @@ void draw()
   rightFft.forward(player.right);
   leftFft.forward(player.left);
 
-  background(bgColor);
   translate(width / 2, height / 2);
-  
-  processors.get(processors.size() - 1).addPoint(angle, rightFft, leftFft);
+
+//  PGraphicsOpenGL pgl = (PGraphicsOpenGL)g;
+//  GL gl = pgl.beginGL();
+//  gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE);
+ 
+  VisualProcessor primaryProcessor = processors.get(processors.size() - 1);
+  primaryProcessor.addPoint(angle, rightFft, leftFft);
+  primaryProcessor.prepareDrawing();
   for (VisualProcessor processor : processors) {
-    processor.visualize(angle);
+    if (processor.isEmpty() == false) {
+      processor.visualize(processor == primaryProcessor, angle);
+    }
   }
+
+//pgl.endGL();
   
   if (movie != null) {
     movie.addFrame();
