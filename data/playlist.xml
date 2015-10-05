@@ -5,6 +5,7 @@
 		<visualizer>spinningHexagon</visualizer>
 		<visualizer>sphere</visualizer>
 		<visualizer>ringSwaying</visualizer>
+		<visualizer>levelBezier</visualizer>
 
 		<visualizer>lineTunnel</visualizer>
 	</visualizers>

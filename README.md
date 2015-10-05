@@ -13,6 +13,11 @@ Usage
 Update history
 --------------
 
+### 2015-10-05
+
+* Add "ChannelLevelBezierVisualProcessor".
+* Refactor some codes.
+
 ### 2015-09-13
 
 * Add "ChannelLineTunnelVisualProcessor".

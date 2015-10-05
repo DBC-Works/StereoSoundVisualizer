@@ -2,7 +2,7 @@
  * StereoSoundVisualizer
  * for Processing 1.5.1(not for Processing 2.x)
  * @author Sad Juno
- * @version 201509
+ * @version 201510
  * @link https://github.com/DBC-Works
  * @license http://opensource.org/licenses/MIT
  */
@@ -29,8 +29,12 @@ import processing.video.*;
 // screenScale: 1.0 - HD(1280x720) / 1.5 - Full HD(1920x1080)
 final float screenScale = 4 / 4.0;
 
-// record: Record movie if true 
-final boolean record = false;
+// movieFileName: Record movie if not null and not empty
+//final String movieFileName = "movie";
+final String movieFileName = null;
+
+// recordAsMovie: Record as PNG files if false(experimental)
+final boolean recordAsMovie = true;
 
 // fps: Frame per second
 final int fps = 15;
@@ -137,6 +141,12 @@ abstract class VisualProcessor<T>
       background(bgColor);
     }
   }
+
+  protected final float scale(
+    float value)
+  {
+    return value * screenScale;
+  }  
   
   protected final int getMaxBandIndex(
     FFT fft)
@@ -240,6 +250,94 @@ abstract class ChannelPointVisualProcessor extends VisualProcessor<ChannelPointI
   {
     final PVector pt = createCirclePoint(angle);
     return new ChannelPointInfo(pt.x, pt.y, z, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+  }
+}
+
+final class ChannelLevelBezierVisualProcessor extends ChannelPointVisualProcessor
+{
+  private final float xStep;
+  
+  ChannelLevelBezierVisualProcessor(
+    float screenScale,
+    float dist,
+    float maxRate,
+    int indexSize,
+    float tempo)
+  {
+    super(screenScale, dist, maxRate, indexSize);
+    
+    xStep = (tempo / 120.0) * scale(24.0 * 15 / fps);
+  }
+  
+  private ChannelPointInfo createPoint(
+    boolean asLeft,
+    FFT fft)
+  {
+    final PVector pt = new PVector(0, fft.calcAvg(0, maxSampleRate) * pointCreator.distFromOrigin);
+    return new ChannelPointInfo(pt.x * (asLeft ? -1 : 1), pt.y, 0, fft.calcAvg(0, maxSampleRate), getMaxBandIndex(fft));
+  }
+
+  String getName()
+  {
+    return "levelBezier";
+  }
+  
+  void addPoint(
+    float angle,
+    FFT rightFft,
+    FFT leftFft)
+  {
+    soundPoints.rightChannelPoints.add(createPoint(false, rightFft));
+    soundPoints.leftChannelPoints.add(createPoint(true, leftFft));
+  }
+
+  void visualize(
+    boolean asPrimary,
+    float angle)
+  {
+    noFill();
+    smooth();
+
+    strokeWeight(scale(2));
+    bezierDetail((int)scale(40));
+
+    float intensity = 1.0 / 3;
+    for (int index = 0; index < soundPoints.rightChannelPoints.size(); ++index) {
+      float distRatio = index * 100.0 / soundPoints.rightChannelPoints.size();
+      
+      ChannelPointInfo rightPoint = soundPoints.rightChannelPoints.get(index);
+      ChannelPointInfo leftPoint = soundPoints.leftChannelPoints.get(index);
+
+      float h = 200 - (20.0 * rightPoint.maxLevelHzIndex / hzIndexSize);
+      if (h < 0) {
+        h += 360;
+      }
+      stroke(h, 100 - (50 * rightPoint.averageAmplitude), 80, distRatio);
+      bezier(rightPoint.x, rightPoint.y, 0,
+             leftPoint.x * intensity, leftPoint.y, leftPoint.z,
+             rightPoint.x * intensity, -rightPoint.y, rightPoint.z,
+             leftPoint.x, -leftPoint.y, 0);
+      line(rightPoint.x, rightPoint.y, 0, leftPoint.x, -leftPoint.y, 0);
+             
+      h = 200 - (20.0 * leftPoint.maxLevelHzIndex / hzIndexSize);
+      if (h < 0) {
+        h += 360;
+      }
+      stroke(h, 100 - (50 * leftPoint.averageAmplitude), 80, distRatio);
+      bezier(leftPoint.x, leftPoint.y, 0,
+            rightPoint.x * intensity, rightPoint.y, rightPoint.z,
+            leftPoint.x * intensity, -leftPoint.y, leftPoint.z,
+            rightPoint.x, -rightPoint.y, 0);
+      line(leftPoint.x, leftPoint.y, 0, rightPoint.x, -rightPoint.y, 0);
+      rightPoint.x += scale(xStep);
+      rightPoint.y += scale(rightPoint.averageAmplitude * 2.5);
+      leftPoint.x -= scale(xStep);
+      leftPoint.y += scale(leftPoint.averageAmplitude * 2.5);
+    }
+    if (asPrimary == false || 100.0 * 15 / fps < soundPoints.rightChannelPoints.size()) {
+      soundPoints.rightChannelPoints.remove(0);
+      soundPoints.leftChannelPoints.remove(0);
+    }
   }
 }
 
@@ -927,6 +1025,51 @@ final class ChannelRingSwayingVisualProcessor extends VisualProcessor<ChannelRin
   }
 }
 
+interface Recorder
+{
+  abstract void recordFrame();
+  abstract void finish();
+}
+
+final class MovieMakerRecorder implements Recorder
+{
+  private MovieMaker movieMaker;
+
+  public MovieMakerRecorder(
+    PApplet applet)
+  {
+    movieMaker = new MovieMaker(applet, width, height, movieFileName + ".mov", fps, MovieMaker.MOTION_JPEG_A, MovieMaker.BEST);
+  }
+
+  void recordFrame()
+  {
+    movieMaker.addFrame();
+  }
+  
+  void finish()
+  {
+    movieMaker.finish();
+    movieMaker = null;
+  }
+}
+
+final class FrameRecorder implements Recorder
+{
+  public FrameRecorder(
+    PApplet applet)
+  {
+  }
+
+  void recordFrame()
+  {
+    saveFrame(movieFileName + "######.png");
+  }
+  
+  void finish()
+  {
+  }
+}
+
 //
 // Fields
 //
@@ -938,7 +1081,7 @@ Minim minim;
 AudioPlayer player;
 FFT rightFft;
 FFT leftFft;
-MovieMaker movie;
+Recorder recorder;
 BeatDetect beatDetector;
 List<SceneInfo> scenes;
 List<String> visualizers;
@@ -995,6 +1138,7 @@ void playNewSound()
   processors.add(new ChannelHexagonVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelSpinningHexagonVisualProcessor(screenScale, height / 2, player.sampleRate() / 2, rightFft.specSize() / 10));
   processors.add(new ChannelRingSwayingVisualProcessor(screenScale, height / 6, player.sampleRate() / 2, rightFft.specSize() / 10, getTempo()));
+  processors.add(new ChannelLevelBezierVisualProcessor(screenScale, height / 4, player.sampleRate() / 2, rightFft.specSize() / 100, getTempo()));
 
   if (visualizers.isEmpty() == false) {
     Iterator it =  processors.iterator();
@@ -1029,8 +1173,8 @@ void setup()
   initMusics();
   beatDetector = new BeatDetect();
   beatDetector.detectMode(BeatDetect.FREQ_ENERGY);
-  if (record) {
-    movie = new MovieMaker(this, width, height, "movie.mov", fps, MovieMaker.MOTION_JPEG_A, MovieMaker.BEST);
+  if (movieFileName != null && 0 < movieFileName.length()) {
+    recorder = recordAsMovie ? new MovieMakerRecorder(this) : new FrameRecorder(this);
   }
   
   minim = new Minim(this);
@@ -1041,9 +1185,9 @@ void stop()
 {
   super.stop();
 
-  if (movie != null) {
-    movie.finish();
-    movie = null;
+  if (recorder != null) {
+    recorder.finish();
+    recorder = null;
   }
   player.close();
   minim.stop();
@@ -1058,9 +1202,9 @@ void draw()
         infoIndex = 0;
       }
       else {
-        if (movie != null) {
-          movie.finish();
-          movie = null;
+        if (recorder != null) {
+          recorder.finish();
+          recorder = null;
         }
         exit();
         return;
@@ -1089,11 +1233,9 @@ void draw()
   }
 
 //pgl.endGL();
-  
-  if (movie != null) {
-    movie.addFrame();
+  if (recorder != null) {
+    recorder.recordFrame();
   }
-  
   angle += 360 * (((60.0 / getTempo()) * 4) / frameRate);
   if (360 <= angle) {
     angle = 0;
